@@ -2331,26 +2331,31 @@ static int wpa_drv_zep_set_supp_port(void *priv,
 	}
 
 	iface = net_if_lookup_by_dev(if_ctx->dev_ctx);
+	if (!iface) {
+		wpa_printf(MSG_ERROR, "%s: failed to resolve network interface", __func__);
+		goto out;
+	}
 
 	ret = dev_ops->set_supp_port(if_ctx->dev_priv,
 				     authorized,
 				     if_ctx->bssid);
-
-#ifdef CONFIG_WIFI_STA_AUTO_DHCPV4
-	if (authorized) {
-#ifdef CONFIG_WIFI_NM_WPA_SUPPLICANT_SKIP_DHCP_ON_ROAMING
-		if (if_ctx->ft_roaming == true || if_ctx->roaming == true) {
-			if_ctx->roaming = false;
-			if_ctx->ft_roaming = false;
-		} else {
-			net_dhcpv4_restart(iface);
-		}
-#else
-		net_dhcpv4_restart(iface);
-#endif
+	if (ret) {
+		wpa_printf(MSG_ERROR, "%s: set_supp_port op failed: %d", __func__, ret);
+		goto out;
 	}
 
-#endif
+	/* The supplicant owns controlled-port authorization, while Zephyr owns
+	 * address configuration. Reflect authorization through interface
+	 * operational state and leave DHCP policy to the networking stack.
+	 */
+	if (authorized) {
+		if_ctx->roaming = false;
+		if_ctx->ft_roaming = false;
+		net_if_dormant_off(iface);
+	} else {
+		net_if_dormant_on(iface);
+	}
+
 out:
 	return ret;
 }
